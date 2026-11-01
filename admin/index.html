@@ -139,6 +139,16 @@ label{display:block;font-size:13px;font-weight:600;color:var(--mute);margin:14px
 .btn-save:disabled{opacity:.6}
 .btn-x{background:#efede5;color:var(--ink)}
 .btn-del{background:var(--red-bg);color:var(--red)}
+.pm{display:inline-block;font-size:10px;font-weight:700;padding:2px 7px;border-radius:8px;vertical-align:middle;margin-left:4px;letter-spacing:.02em}
+.pm.upi{background:#e6eefb;color:#2f5fa8}.pm.cash{background:#fbf1da;color:#a9741a}
+.mseg{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.mseg button{border:1.5px solid var(--line);background:#fff;border-radius:14px;padding:13px;font-weight:700;font-size:15px;color:var(--mute)}
+.mseg button.on{border-color:#2f5fa8;background:#e6eefb;color:#2f5fa8}
+.mseg button.on.cash{border-color:#a9741a;background:#fbf1da;color:#a9741a}
+.fchips{display:flex;gap:8px;align-items:center;margin-bottom:10px}
+.fc{border:1.5px solid var(--line);background:#fff;border-radius:20px;padding:8px 16px;font-weight:600;font-size:14px;color:var(--mute)}
+.fc.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+.ftot{margin-left:auto;font-weight:700;font-size:14px}
 
 /* skeleton / toast */
 .sk{background:linear-gradient(90deg,#ebe8de 25%,#f6f4ec 50%,#ebe8de 75%);background-size:200% 100%;animation:sh 1.2s infinite;border-radius:18px}
@@ -171,7 +181,7 @@ const IC = {
 };
 
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-const S = { progs: [], inc: [], pay: [], view: 'dash', pid: null, tab: 'inc', q: '', loading: true };
+const S = { progs: [], inc: [], pay: [], view: 'dash', pid: null, tab: 'inc', q: '', m: 'all', loading: true };
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt = n => '₹' + Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 });
@@ -180,6 +190,9 @@ const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','
 const dlong = d => { const [y, m, dd] = String(d).split('-'); return `${+dd} ${MON[+m - 1]} ${y}`; };
 const dnice = d => d === today() ? 'Today' : d === new Date(Date.now() - 864e5).toLocaleDateString('en-CA') ? 'Yesterday' : dlong(d);
 const sum = a => a.reduce((t, x) => t + Number(x.amount || 0), 0);
+const M = x => x.method === 'cash' ? 'cash' : 'upi';
+const badge = x => `<span class="pm ${M(x)}">${M(x) === 'cash' ? 'Cash' : 'UPI'}</span>`;
+const handCash = (inc, pay) => sum(inc.filter(x => M(x) === 'cash')) - sum(pay.filter(x => M(x) === 'cash'));
 const byDate = (a, b) => b.date.localeCompare(a.date) || (b.created_at || '').localeCompare(a.created_at || '');
 const PAL = [['#e3f4ec','#1a7f55'],['#fbf1da','#a9741a'],['#e6eefb','#2f5fa8'],['#f6e6f3','#a1348f'],['#fbe9e5','#c2412d'],['#e5f3f5','#1b7a89']];
 const avatar = n => { const s = String(n).trim(); let h = 0; for (const c of s) h = (h * 31 + c.codePointAt(0)) >>> 0; const [bg, fg] = PAL[h % PAL.length]; return `<div class="av" style="background:${bg};color:${fg}">${esc([...s][0] || '?').toUpperCase()}</div>`; };
@@ -260,13 +273,16 @@ function dashboard() {
       <div class="s">${dnice(x.date)} · ${esc(x.sub)}</div></div><div class="amt ${x.k}">${x.k === 'in' ? '+' : '−'}${fmt(x.amount)}</div></div>`).join('')
     || `<div class="empty"><b>🧾</b>No entries yet</div>`;
 
-  return shell(`<div class="hero"><div class="lbl">Cash in hand</div>
+  return shell(`<div class="hero"><div class="lbl">Total balance</div>
       <div class="big">${fmt(tin - tout)}</div>
       <div class="prog"><i style="width:${pct}%"></i></div>
       <div class="progtxt">${Math.round(pct)}% of collected money given out</div></div>
     <div class="tiles">
       <div class="tile in"><div class="ic">📥</div><div class="l">Total received</div><div class="v">${fmt(tin)}</div></div>
       <div class="tile out"><div class="ic">📤</div><div class="l">Total given</div><div class="v">${fmt(tout)}</div></div></div>
+    <div class="tiles" style="margin-top:10px">
+      <div class="tile"><div class="ic" style="background:#fbf1da">💵</div><div class="l">Hand cash</div><div class="v">${fmt(handCash(S.inc, S.pay))}</div></div>
+      <div class="tile"><div class="ic" style="background:#e6eefb">📱</div><div class="l">UPI balance</div><div class="v">${fmt(tin - tout - handCash(S.inc, S.pay))}</div></div></div>
     <div class="sec"><h2>Programmes</h2></div><div class="box">${progs}</div>
     <div class="sec"><h2>Given to</h2><small>Ustads &amp; others</small></div><div class="box">${people}</div>
     <div class="sec"><h2>Daily collection</h2></div><div class="box">${chart}</div>
@@ -284,7 +300,8 @@ function progDetail() {
   const inc = S.inc.filter(x => x.programme_id === p.id), pay = S.pay.filter(x => x.programme_id === p.id);
   const i = sum(inc), o = sum(pay), pct = i > 0 ? Math.min(100, o / i * 100) : 0;
   const q = S.q.trim().toLowerCase(), isIn = S.tab === 'inc';
-  const items = (isIn ? inc.filter(x => !q || x.name.toLowerCase().includes(q)) : pay.filter(x => !q || (x.paid_to + ' ' + x.reason).toLowerCase().includes(q))).sort(byDate);
+  const items = (isIn ? inc.filter(x => !q || x.name.toLowerCase().includes(q)) : pay.filter(x => !q || (x.paid_to + ' ' + x.reason).toLowerCase().includes(q))).filter(x => S.m === 'all' || M(x) === S.m).sort(byDate);
+  const hc = handCash(inc, pay);
 
   let list = '', last = '';
   items.forEach(x => {
@@ -292,7 +309,7 @@ function progDetail() {
       list += `<div class="datehead"><span>${dnice(x.date)}</span><span>${fmt(sum(items.filter(y => y.date === x.date)))}</span></div>`; last = x.date;
     }
     const who = isIn ? x.name : x.paid_to;
-    list += `<div class="row click" data-a="edit" data-k="${S.tab}" data-id="${x.id}">${avatar(who)}<div class="mid"><div class="t">${esc(who)}</div>
+    list += `<div class="row click" data-a="edit" data-k="${S.tab}" data-id="${x.id}">${avatar(who)}<div class="mid"><div class="t">${esc(who)} ${badge(x)}</div>
       ${!isIn && x.reason ? `<div class="s">${esc(x.reason)}</div>` : ''}</div>
       <div class="amt ${isIn ? 'in' : 'out'}">${isIn ? '+' : '−'}${fmt(x.amount)}</div></div>`;
   });
@@ -302,12 +319,16 @@ function progDetail() {
   return shell(`<button class="back" data-a="nav" data-v="progs">‹ Programmes</button>
     <div class="hero" style="margin-top:4px"><button class="heroedit" data-a="editprog">Edit</button>
       <div class="sub">${dlong(p.date)}</div><div class="title">${esc(p.name)}</div>
-      <div class="lbl" style="margin-top:14px">Cash in hand</div><div class="big">${fmt(i - o)}</div>
+      <div class="lbl" style="margin-top:14px">Balance</div><div class="big">${fmt(i - o)}</div>
       <div class="prog"><i style="width:${pct}%"></i></div><div class="progtxt">${Math.round(pct)}% given out</div></div>
     <div class="tiles"><div class="tile in"><div class="ic">📥</div><div class="l">Received · ${inc.length}</div><div class="v">${fmt(i)}</div></div>
       <div class="tile out"><div class="ic">📤</div><div class="l">Given · ${pay.length}</div><div class="v">${fmt(o)}</div></div></div>
+    <div class="tiles" style="margin-top:10px">
+      <div class="tile"><div class="ic" style="background:#fbf1da">💵</div><div class="l">Hand cash</div><div class="v">${fmt(hc)}</div></div>
+      <div class="tile"><div class="ic" style="background:#e6eefb">📱</div><div class="l">UPI balance</div><div class="v">${fmt(i - o - hc)}</div></div></div>
     <div class="seg"><button class="i ${isIn ? 'on' : ''}" data-a="tab" data-t="inc">📥 Received</button>
       <button class="o ${!isIn ? 'on' : ''}" data-a="tab" data-t="pay">📤 Given</button></div>
+    <div class="fchips">${[['all', 'All'], ['upi', 'UPI'], ['cash', 'Cash']].map(([v, l]) => `<button class="fc ${S.m === v ? 'on' : ''}" data-a="mf" data-v="${v}">${l}</button>`).join('')}<span class="ftot">${fmt(sum(items))}</span></div>
     <div class="search">${IC.search}<input id="q" placeholder="${isIn ? 'Search by name' : 'Search name or reason'}" value="${esc(S.q)}"></div>
     <div class="box">${list}</div>`,
     `<button class="fab ${isIn ? '' : 'red'}" data-a="add">${IC.plus}${isIn ? 'Add Money Received' : 'Add Money Given'}</button>`);
@@ -322,9 +343,10 @@ function render() {
 
 // ---------- forms ----------
 function openForm(kind, rec = null) {
-  const edit = !!rec, d = rec ? rec.date : today(), red = kind === 'pay';
+  const edit = !!rec, d = rec ? rec.date : today(), red = kind === 'pay', mm = rec ? M(rec) : 'upi';
   const chips = `<div class="chips">${[50, 100, 200, 500, 1000].map(n => `<button type="button" class="chip" data-a="chip" data-v="${n}">₹${n}</button>`).join('')}</div>`;
-  const money = `<label>Amount</label><div class="money"><span>₹</span><input class="fld" id="fa" type="number" inputmode="decimal" min="0" step="any" value="${rec?.amount ?? ''}" placeholder="0"></div>${chips}`;
+  const money = `<label>Amount</label><div class="money"><span>₹</span><input class="fld" id="fa" type="number" inputmode="decimal" min="0" step="any" value="${rec?.amount ?? ''}" placeholder="0"></div>${chips}
+    <label>Payment method</label><div class="mseg"><button type="button" class="${mm === 'upi' ? 'on' : ''}" data-a="method" data-v="upi">📱 UPI</button><button type="button" class="${mm === 'cash' ? 'on cash' : ''}" data-a="method" data-v="cash">💵 Cash</button></div><input type="hidden" id="fm" value="${mm}">`;
   let title, hint, body;
   if (kind === 'prog') {
     title = edit ? 'Edit programme' : 'New programme'; hint = 'Just a name is enough. Date is filled in automatically.';
@@ -361,7 +383,8 @@ async function save(kind, id) {
   else {
     const amount = parseFloat($('fa').value);
     if (!(amount > 0)) return toast('Enter a valid amount');
-    row = kind === 'inc' ? { programme_id: S.pid, name: v, amount, date } : { programme_id: S.pid, paid_to: v, amount, date, reason: $('fr').value.trim() };
+    const method = $('fm').value === 'cash' ? 'cash' : 'upi';
+    row = kind === 'inc' ? { programme_id: S.pid, name: v, amount, date, method } : { programme_id: S.pid, paid_to: v, amount, date, reason: $('fr').value.trim(), method };
   }
   const btn = document.querySelector('.btn-save'); btn.disabled = true; btn.textContent = 'Saving...';
   const { data, error } = await (id ? sb.from(TABLE[kind]).update(row).eq('id', id) : sb.from(TABLE[kind]).insert(row).select());
@@ -379,9 +402,9 @@ async function del(kind, id) {
 function csv() {
   const pn = id => (S.progs.find(p => p.id === id) || {}).name || '';
   const q = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
-  const rows = [['Type', 'Programme', 'Name', 'Amount', 'Date', 'Reason'],
-    ...S.inc.map(x => ['Received', pn(x.programme_id), x.name, x.amount, x.date, '']),
-    ...S.pay.map(x => ['Given', pn(x.programme_id), x.paid_to, x.amount, x.date, x.reason])];
+  const rows = [['Type', 'Programme', 'Name', 'Amount', 'Date', 'Reason', 'Method'],
+    ...S.inc.map(x => ['Received', pn(x.programme_id), x.name, x.amount, x.date, '', M(x).toUpperCase()]),
+    ...S.pay.map(x => ['Given', pn(x.programme_id), x.paid_to, x.amount, x.date, x.reason, M(x).toUpperCase()])];
   const blob = new Blob(['\ufeff' + rows.map(r => r.map(q).join(',')).join('\n')], { type: 'text/csv;charset=utf-8' });
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `elysium-fund-${today()}.csv`; a.click();
   toast('Downloaded');
@@ -393,7 +416,9 @@ document.addEventListener('click', e => {
   const el = e.target.closest('[data-a]'); if (!el) return;
   const a = el.dataset.a, id = el.dataset.id;
   if (a === 'nav') { S.view = el.dataset.v; S.pid = null; S.q = ''; window.scrollTo(0, 0); return render(); }
-  if (a === 'open') { S.view = 'prog'; S.pid = id; S.tab = 'inc'; S.q = ''; window.scrollTo(0, 0); return render(); }
+  if (a === 'method') { $('fm').value = el.dataset.v; document.querySelectorAll('.mseg button').forEach(b => { b.classList.toggle('on', b === el); b.classList.toggle('cash', b === el && el.dataset.v === 'cash'); }); return; }
+  if (a === 'mf') { S.m = el.dataset.v; return render(); }
+  if (a === 'open') { S.view = 'prog'; S.pid = id; S.tab = 'inc'; S.q = ''; S.m = 'all'; window.scrollTo(0, 0); return render(); }
   if (a === 'tab') { S.tab = el.dataset.t; S.q = ''; return render(); }
   if (a === 'addprog') return openForm('prog');
   if (a === 'editprog') return openForm('prog', S.progs.find(p => p.id === S.pid));
